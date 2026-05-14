@@ -1,0 +1,27 @@
+{
+  "name": "knowledge-keeper-opencode-plugin",
+  "version": "1.0.0",
+  "description": "OpenCode plugin: RAG-grounded knowledge keeper with Obsidian vault integration. Provides semantic search over your Obsidian notes and GitHub trending discovery.",
+  "type": "module",
+  "main": "knowledge-keeper-plugin.js",
+  "files": [
+    "knowledge-keeper-plugin.js",
+    "skill/",
+    "server/"
+  ],
+  "keywords": [
+    "opencode",
+    "plugin",
+    "rag",
+    "obsidian",
+    "knowledge-base",
+    "llamaindex",
+    "deepseek"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}

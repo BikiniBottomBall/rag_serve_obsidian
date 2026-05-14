@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库查询 · opencode RAG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Work+Sans:ital,wght@0,300;0,400;0,500;1,400&family=JetBrains+Mono:ital@0;1&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Variables ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --cream:        #faf8f5;
+  --cream-deep:   #f3efe8;
+  --cream-dark:   #e8e2d8;
+  --ink:          #2c2416;
+  --ink-muted:    #6b5e4f;
+  --ink-faint:    #a39888;
+  --rust:         #b85c38;
+  --rust-light:   #d4845e;
+  --gold:         #c4a35a;
+  --gold-pale:    #e8d9a8;
+  --border:       #e5ded4;
+  --surface:      #fefdfb;
+  --error:        #c44d34;
+  --success:      #5b8c5a;
+  --shadow-sm:    0 1px 3px rgba(44,36,22,0.06);
+  --shadow-md:    0 4px 16px rgba(44,36,22,0.08);
+  --shadow-lg:    0 8px 32px rgba(44,36,22,0.12);
+  --radius:       12px;
+  --radius-sm:    8px;
+  --font-display: 'Playfair Display', 'Noto Serif SC', Georgia, serif;
+  --font-body:    'Work Sans', -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+  --transition:   0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html, body {
+  height: 100%;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* ── Noise texture overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+/* ── App Shell ── */
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 32px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.header h1 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background var(--transition);
+}
+.status-dot.connected  { background: var(--success); box-shadow: 0 0 6px rgba(91,140,90,0.4); }
+.status-dot.connecting { background: var(--gold); animation: pulse 1.5s ease-in-out infinite; }
+.status-dot.disconnected { background: var(--error); }
+
+.status-label {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.header-right {
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.btn:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--cream-deep);
+}
+.btn:active { transform: scale(0.97); }
+.btn--reindex { border-color: var(--gold-pale); color: var(--ink); }
+
+/* ── Main Content ── */
+.main {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  overflow: hidden;
+}
+
+.chat-area {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 32px 24px;
+  scroll-behavior: smooth;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.messages::-webkit-scrollbar { width: 6px; }
+.messages::-webkit-scrollbar-track { background: transparent; }
+.messages::-webkit-scrollbar-thumb { background: var(--cream-dark); border-radius: 3px; }
+
+/* ── Sources Panel ── */
+.sources-panel {
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+  padding: 24px 20px;
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+}
+.sources-panel.active { display: flex; }
+
+.sources-panel::-webkit-scrollbar { width: 4px; }
+.sources-panel::-webkit-scrollbar-track { background: transparent; }
+.sources-panel::-webkit-scrollbar-thumb { background: var(--cream-dark); border-radius: 2px; }
+
+.sources-heading {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  font-style: italic;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-card {
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  transition: all var(--transition);
+  cursor: default;
+}
+.source-card:hover {
+  border-color: var(--rust-light);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(-2px);
+}
+
+.source-card__file {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--rust);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+
+.source-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.source-card__score {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: var(--gold-pale);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.source-card__text {
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.55;
+  font-style: italic;
+}
+
+.sources-empty {
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 13px;
+  padding: 24px 0;
+  font-style: italic;
+}
+
+/* ── Message Bubbles ── */
+.message {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  animation: messageIn 0.4s ease-out both;
+}
+
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.message--user {
+  align-items: flex-end;
+}
+.message--user .message__bubble {
+  background: var(--cream-deep);
+  border: 1px solid var(--border);
+  border-radius: 16px 16px 4px 16px;
+  max-width: 75%;
+  padding: 12px 18px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.message--assistant {
+  align-items: flex-start;
+}
+.message--assistant .message__bubble {
+  background: transparent;
+  max-width: 85%;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.message__role {
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+  font-style: italic;
+}
+
+/* ── Markdown content ── */
+.bubble-content h1, .bubble-content h2, .bubble-content h3 {
+  font-family: var(--font-display);
+  color: var(--ink);
+  margin: 16px 0 8px;
+  line-height: 1.3;
+}
+.bubble-content h1 { font-size: 20px; }
+.bubble-content h2 { font-size: 17px; }
+.bubble-content h3 { font-size: 15px; }
+
+.bubble-content p { margin: 0 0 10px; }
+.bubble-content p:last-child { margin-bottom: 0; }
+
+.bubble-content strong { color: var(--ink); font-weight: 600; }
+.bubble-content em { color: var(--ink-muted); }
+
+.bubble-content code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--cream-deep);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--rust);
+}
+
+.bubble-content pre {
+  background: var(--cream-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  margin: 10px 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.bubble-content pre code {
+  background: none;
+  padding: 0;
+  color: var(--ink);
+}
+
+.bubble-content ul, .bubble-content ol {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.bubble-content li { margin-bottom: 4px; }
+
+.bubble-content a {
+  color: var(--rust);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rust-light);
+  transition: border-color var(--transition);
+}
+.bubble-content a:hover { border-color: var(--rust); }
+
+.bubble-content blockquote {
+  border-left: 3px solid var(--gold);
+  padding: 4px 0 4px 14px;
+  margin: 10px 0;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.bubble-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+/* ── Sources toggle ── */
+.sources-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 6px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.sources-toggle:hover {
+  border-color: var(--rust-light);
+  color: var(--rust);
+  background: rgba(184,92,56,0.04);
+}
+.sources-toggle.active {
+  border-style: solid;
+  border-color: var(--rust);
+  color: var(--rust);
+  background: rgba(184,92,56,0.06);
+}
+
+.sources-toggle__arrow {
+  display: inline-block;
+  transition: transform var(--transition);
+  font-size: 10px;
+}
+.sources-toggle.active .sources-toggle__arrow { transform: rotate(90deg); }
+
+/* ── Inline sources (small cards inside message) ── */
+.inline-sources {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 4px;
+}
+.inline-sources.expanded { display: flex; }
+
+.inline-source {
+  font-size: 12px;
+  padding: 8px 12px;
+  background: var(--cream-deep);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.inline-source__file {
+  font-family: var(--font-mono);
+  color: var(--rust);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.inline-source__text {
+  color: var(--ink-muted);
+  font-style: italic;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Loading ── */
+.message--assistant .message__bubble.loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+}
+
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+}
+.typing-indicator span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  animation: typing 1.4s ease-in-out infinite;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Welcome / Empty State ── */
+.welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 32px;
+  gap: 16px;
+}
+.welcome.hidden { display: none; }
+
+.welcome__icon {
+  font-size: 48px;
+  margin-bottom: 8px;
+  opacity: 0.6;
+}
+.welcome__title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.welcome__subtitle {
+  font-size: 14px;
+  color: var(--ink-muted);
+  max-width: 360px;
+  line-height: 1.6;
+}
+.welcome__hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-top: 8px;
+  font-style: italic;
+}
+
+/* ── Input Area ── */
+.input-area {
+  padding: 16px 32px 24px;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(to top, var(--cream) 60%, transparent);
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 10px 10px 18px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.input-wrapper:focus-within {
+  border-color: var(--rust-light);
+  box-shadow: 0 0 0 3px rgba(184,92,56,0.08);
+}
+
+.input-wrapper textarea {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  resize: none;
+  outline: none;
+  max-height: 120px;
+  padding: 2px 0;
+}
+.input-wrapper textarea::placeholder {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.btn-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 8px;
+  background: var(--rust);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition);
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+.btn-send:hover {
+  background: var(--rust-light);
+  box-shadow: 0 2px 8px rgba(184,92,56,0.3);
+}
+.btn-send:active { transform: scale(0.94); }
+.btn-send:disabled {
+  background: var(--cream-dark);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ── Error ── */
+.error-banner {
+  background: rgba(196,77,52,0.08);
+  border: 1px solid rgba(196,77,52,0.2);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  margin: 8px 32px;
+  color: var(--error);
+  font-size: 13px;
+  display: none;
+}
+.error-banner.visible { display: block; }
+
+/* ── Confirm Dialog ── */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgba(44,36,22,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+.dialog-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: var(--shadow-lg);
+}
+.dialog h3 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin-bottom: 10px;
+  color: var(--ink);
+}
+.dialog p {
+  font-size: 14px;
+  color: var(--ink-muted);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+.dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.btn--danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+.btn--danger:hover {
+  background: var(--error);
+  color: white;
+}
+
+/* ── Responsive ── */
+@media (max-width: 840px) {
+  .main { grid-template-columns: 1fr; }
+  .sources-panel {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 320px;
+    z-index: 5;
+    box-shadow: var(--shadow-lg);
+    transform: translateX(100%);
+    transition: transform var(--transition);
+  }
+  .sources-panel.active { transform: translateX(0); }
+
+  .messages { padding: 20px 16px 16px; }
+  .input-area { padding: 12px 16px 20px; }
+  .header { padding: 14px 16px 12px; }
+  .header h1 { font-size: 18px; }
+  .message--user .message__bubble { max-width: 90%; }
+  .message--assistant .message__bubble { max-width: 95%; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <h1>知识库查询</h1>
+      <span class="status-dot connecting" id="statusDot"></span>
+      <span class="status-label" id="statusLabel">连接中…</span>
+    </div>
+    <div class="header-right">
+      <button class="btn btn--reindex" id="btnReindex" title="重建索引">⟳ 重新索引</button>
+    </div>
+  </header>
+
+  <!-- Error banner -->
+  <div class="error-banner" id="errorBanner"></div>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="chat-area">
+      <!-- Welcome state -->
+      <div class="welcome" id="welcome">
+        <div class="welcome__icon">&#128214;</div>
+        <div class="welcome__title">向你的知识库提问</div>
+        <div class="welcome__subtitle">基于 opencode 知识库的智能检索，AI 会引用你的笔记内容来回答问题</div>
+        <div class="welcome__hint">试试问："什么是 RAG？"</div>
+      </div>
+
+      <!-- Messages -->
+      <div class="messages" id="messages" style="display:none;"></div>
+    </div>
+
+    <!-- Sources Panel -->
+    <aside class="sources-panel" id="sourcesPanel">
+      <div class="sources-heading">参考来源</div>
+      <div id="sourcesContent"></div>
+    </aside>
+  </div>
+
+  <!-- Input -->
+  <div class="input-area">
+    <div class="input-wrapper">
+      <textarea id="input" rows="1" placeholder="输入你的问题… (Enter 发送，Shift+Enter 换行)"></textarea>
+      <button class="btn-send" id="btnSend" title="发送">↑</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="dialog-overlay" id="dialogOverlay">
+  <div class="dialog">
+    <h3>确认重建索引</h3>
+    <p>这将清除现有索引并重新扫描所有笔记文件。此操作可能需要一些时间。</p>
+    <div class="dialog-actions">
+      <button class="btn" id="dialogCancel">取消</button>
+      <button class="btn btn--danger" id="dialogConfirm">确认重建</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ──────────────────────────────────────────────
+   RAG Chat UI — State & API
+   ────────────────────────────────────────────── */
+const API = 'http://127.0.0.1:8765';
+
+const state = {
+  history: [],          // { role, content }
+  messages: [],         // { role, content, sources?, id }
+  activeSources: null,  // message id whose sources are displayed
+  connected: false,
+};
+
+/* ── DOM refs ── */
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+const dom = {
+  messages:     $('#messages'),
+  welcome:      $('#welcome'),
+  input:        $('#input'),
+  btnSend:      $('#btnSend'),
+  btnReindex:   $('#btnReindex'),
+  statusDot:    $('#statusDot'),
+  statusLabel:  $('#statusLabel'),
+  errorBanner:  $('#errorBanner'),
+  sourcesPanel: $('#sourcesPanel'),
+  sourcesContent: $('#sourcesContent'),
+  dialogOverlay:  $('#dialogOverlay'),
+  dialogCancel:   $('#dialogCancel'),
+  dialogConfirm:  $('#dialogConfirm'),
+};
+
+/* ── Markdown → HTML ── */
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = text;
+
+  // Fenced code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    return `<pre><code>${escapeHtml(code.trim())}</code></pre>`;
+  });
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Italic
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+  // Headings
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // Blockquote
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // Horizontal rules
+  html = html.replace(/^---$/gm, '<hr>');
+
+  // Unordered lists
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+
+  // Ordered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Paragraphs: split by double newlines
+  const blocks = html.split(/\n\n+/);
+  html = blocks.map(b => {
+    b = b.trim();
+    if (!b) return '';
+    if (/^<(h[1-3]|ul|ol|pre|blockquote|hr)/.test(b)) return b;
+    return `<p>${b.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+
+  return html;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ── Sources panel ── */
+function renderSources(sources) {
+  if (!sources || sources.length === 0) {
+    dom.sourcesContent.innerHTML = '<div class="sources-empty">暂无参考来源</div>';
+    return;
+  }
+  dom.sourcesContent.innerHTML = sources.map(s => `
+    <div class="source-card">
+      <div class="source-card__file">${escapeHtml(s.file)}</div>
+      <div class="source-card__meta">
+        <span class="source-card__score">相关度 ${(s.score * 100).toFixed(0)}%</span>
+      </div>
+      <div class="source-card__text">${escapeHtml(s.text)}</div>
+    </div>
+  `).join('');
+}
+
+function showSources(msgId, sources) {
+  state.activeSources = msgId;
+  renderSources(sources);
+  dom.sourcesPanel.classList.add('active');
+
+  // Update toggle buttons
+  $$('.sources-toggle').forEach(el => {
+    el.classList.toggle('active', el.dataset.msgId === msgId);
+  });
+}
+
+function hideSources() {
+  state.activeSources = null;
+  dom.sourcesPanel.classList.remove('active');
+  $$('.sources-toggle').forEach(el => el.classList.remove('active'));
+}
+
+/* ── Messages ── */
+function addMessage(role, content, sources) {
+  const id = 'msg-' + Date.now();
+  const msg = { id, role, content, sources };
+  state.messages.push(msg);
+  state.history.push({ role, content });
+
+  dom.welcome.classList.add('hidden');
+  dom.messages.style.display = '';
+
+  const isUser = role === 'user';
+  const bubbleClass = isUser ? 'message--user' : 'message--assistant';
+  const roleLabel = isUser ? '' : '<div class="message__role">AI 回答</div>';
+  const bodyHTML = isUser
+    ? escapeHtml(content)
+    : `<div class="bubble-content">${renderMarkdown(content)}</div>`;
+
+  let sourcesHTML = '';
+  if (!isUser && sources && sources.length > 0) {
+    sourcesHTML = `
+      <button class="sources-toggle" data-msg-id="${id}" onclick="toggleSources(this, '${id}')">
+        <span class="sources-toggle__arrow">▸</span>
+        ${sources.length} 条参考来源
+      </button>
+      <div class="inline-sources" id="inline-${id}">
+        ${sources.map(s => `
+          <div class="inline-source">
+            <span class="inline-source__file">${escapeHtml(s.file)}</span>
+            <span class="inline-source__text">${escapeHtml(s.text)}</span>
+          </div>
+        `).join('')}
+      </div>`;
+  }
+
+  const el = document.createElement('div');
+  el.className = `message ${bubbleClass}`;
+  el.style.animationDelay = '0s';
+  el.innerHTML = `
+    ${roleLabel}
+    <div class="message__bubble" data-msg-id="${id}">
+      ${bodyHTML}
+      ${sourcesHTML}
+    </div>`;
+
+  dom.messages.appendChild(el);
+  scrollToBottom();
+}
+
+function addLoadingMessage() {
+  dom.welcome.classList.add('hidden');
+  dom.messages.style.display = '';
+
+  const el = document.createElement('div');
+  el.className = 'message message--assistant';
+  el.id = 'loading-msg';
+  el.innerHTML = `
+    <div class="message__role">AI 回答</div>
+    <div class="message__bubble loading">
+      <div class="typing-indicator">
+        <span></span><span></span><span></span>
+      </div>
+    </div>`;
+  dom.messages.appendChild(el);
+  scrollToBottom();
+}
+
+function removeLoadingMessage() {
+  const el = document.getElementById('loading-msg');
+  if (el) el.remove();
+}
+
+function scrollToBottom() {
+  dom.messages.scrollTop = dom.messages.scrollHeight;
+}
+
+/* ── Sources toggle (inline) ── */
+function toggleSources(btn, msgId) {
+  const inline = document.getElementById('inline-' + msgId);
+  if (!inline) return;
+
+  if (state.activeSources === msgId) {
+    // Hide
+    hideSources();
+    inline.classList.remove('expanded');
+    btn.classList.remove('active');
+  } else {
+    // Show
+    const msg = state.messages.find(m => m.id === msgId);
+    if (msg && msg.sources) {
+      showSources(msgId, msg.sources);
+      inline.classList.add('expanded');
+      btn.classList.add('active');
+    }
+  }
+}
+
+/* ── API calls ── */
+async function checkStatus() {
+  try {
+    const res = await fetch(API + '/status');
+    const data = await res.json();
+    state.connected = true;
+    dom.statusDot.className = 'status-dot connected';
+    dom.statusLabel.textContent = data.indexed ? '已就绪' : '引擎初始化中';
+  } catch {
+    state.connected = false;
+    dom.statusDot.className = 'status-dot disconnected';
+    dom.statusLabel.textContent = '服务未连接';
+  }
+}
+
+function showError(msg) {
+  dom.errorBanner.textContent = msg;
+  dom.errorBanner.classList.add('visible');
+  setTimeout(() => dom.errorBanner.classList.remove('visible'), 6000);
+}
+
+async function sendQuery() {
+  const query = dom.input.value.trim();
+  if (!query) return;
+  if (!state.connected) {
+    showError('无法连接到知识库服务，请确认服务器已启动');
+    return;
+  }
+
+  dom.input.value = '';
+  dom.input.style.height = 'auto';
+  dom.btnSend.disabled = true;
+
+  addMessage('user', query);
+  addLoadingMessage();
+
+  try {
+    const res = await fetch(API + '/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: query,
+        history: state.history,
+      }),
+    });
+
+    removeLoadingMessage();
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `请求失败 (${res.status})`);
+    }
+
+    const data = await res.json();
+    addMessage('assistant', data.answer, data.sources);
+  } catch (e) {
+    removeLoadingMessage();
+    addMessage('assistant', '⚠️ 查询失败：' + e.message, []);
+    showError(e.message);
+  } finally {
+    dom.btnSend.disabled = false;
+    dom.input.focus();
+  }
+}
+
+async function reindex() {
+  try {
+    dom.btnReindex.disabled = true;
+    dom.btnReindex.textContent = '⟳ 索引重建中…';
+    const res = await fetch(API + '/reindex', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      showError('索引重建完成！');
+    } else {
+      showError('重建失败：' + (data.detail || '未知错误'));
+    }
+  } catch (e) {
+    showError('重建请求失败：' + e.message);
+  } finally {
+    dom.btnReindex.disabled = false;
+    dom.btnReindex.textContent = '⟳ 重新索引';
+  }
+}
+
+/* ── Events ── */
+dom.input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendQuery();
+  }
+  if (e.key === 'Escape') {
+    dom.input.value = '';
+    dom.input.focus();
+  }
+});
+
+dom.input.addEventListener('input', () => {
+  dom.input.style.height = 'auto';
+  dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
+});
+
+dom.btnSend.addEventListener('click', sendQuery);
+
+/* ── Reindex dialog ── */
+dom.btnReindex.addEventListener('click', () => {
+  dom.dialogOverlay.classList.add('visible');
+});
+
+dom.dialogCancel.addEventListener('click', () => {
+  dom.dialogOverlay.classList.remove('visible');
+});
+
+dom.dialogConfirm.addEventListener('click', () => {
+  dom.dialogOverlay.classList.remove('visible');
+  reindex();
+});
+
+dom.dialogOverlay.addEventListener('click', (e) => {
+  if (e.target === dom.dialogOverlay) {
+    dom.dialogOverlay.classList.remove('visible');
+  }
+});
+
+/* ── Keyboard shortcut for reindex ── */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    dom.dialogOverlay.classList.remove('visible');
+    dom.input.focus();
+  }
+});
+
+/* ── PostMessage listener (from Obsidian plugin) ── */
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'rag-query' && e.data.query) {
+    dom.input.value = e.data.query;
+    dom.input.style.height = 'auto';
+    dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
+    dom.input.focus();
+    sendQuery();
+  }
+});
+
+/* ── Init ── */
+checkStatus();
+setInterval(checkStatus, 30000);
+dom.input.focus();
+
+// Close sources panel when clicking elsewhere
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.sources-toggle') && !e.target.closest('.sources-panel') && !e.target.closest('.inline-sources')) {
+    hideSources();
+    $$('.inline-sources').forEach(el => el.classList.remove('expanded'));
+  }
+});
+</script>
+</body>
+</html>

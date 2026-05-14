@@ -1,0 +1,6 @@
+llama-index-core>=0.10.0
+llama-index-llms-openai-like>=0.2.0
+llama-index-embeddings-huggingface>=0.2.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-dotenv>=1.0.0
